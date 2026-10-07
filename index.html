@@ -315,6 +315,69 @@ button.dl.alt:hover:not(:disabled){background:#e2e8f0}
       .catch(function(){ showError("Couldn't fetch that X post. It may be deleted or private."); });
   }
 
+  /* ----- in-browser video+audio muxing (ffmpeg.wasm, lazy-loaded) ----- */
+  var FF_VER = "0.12.10";
+  var ffmpegInst = null, ffmpegLoading = null;
+  function loadScript(src){
+    return new Promise(function(res, rej){
+      var s = document.createElement("script");
+      s.src = src; s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+  function getFFmpeg(){
+    if (ffmpegInst) return Promise.resolve(ffmpegInst);
+    if (ffmpegLoading) return ffmpegLoading;
+    ffmpegLoading = loadScript("https://unpkg.com/@ffmpeg/ffmpeg@" + FF_VER + "/dist/umd/ffmpeg.js")
+      .then(function(){
+        var ff = new FFmpegWASM.FFmpeg();
+        return ff.load({
+          coreURL: "https://unpkg.com/@ffmpeg/core@" + FF_VER + "/dist/umd/ffmpeg-core.js",
+          wasmURL: "https://unpkg.com/@ffmpeg/core@" + FF_VER + "/dist/umd/ffmpeg-core.wasm"
+        }).then(function(){ ffmpegInst = ff; return ff; });
+      })
+      .catch(function(e){ ffmpegLoading = null; throw e; });
+    return ffmpegLoading;
+  }
+  function mergeAndDownload(videoUrl, audioUrl, filename, btn, isMp4){
+    btn.disabled = true;
+    note("Loading video tools (one-time download)…");
+    getFFmpeg().then(function(ff){
+      note("Downloading video & audio…");
+      return Promise.all([
+        fetch(videoUrl).then(function(r){ if (!r.ok) throw new Error("v"); return r.arrayBuffer(); }),
+        fetch(audioUrl).then(function(r){ if (!r.ok) throw new Error("a"); return r.arrayBuffer(); })
+      ]).then(function(parts){
+        note("Merging video + audio…");
+        var vf = isMp4 ? "v.mp4" : "v.webm";
+        var af = isMp4 ? "a.m4a" : "a.webm";
+        var out = isMp4 ? "out.mp4" : "out.webm";
+        return ff.writeFile(vf, new Uint8Array(parts[0]))
+          .then(function(){ return ff.writeFile(af, new Uint8Array(parts[1])); })
+          .then(function(){ return ff.exec(["-i", vf, "-i", af, "-c", "copy", "-shortest", out]); })
+          .then(function(){ return ff.readFile(out); })
+          .then(function(data){
+            var blob = new Blob([data], { type: isMp4 ? "video/mp4" : "video/webm" });
+            var a = document.createElement("a");
+            var url = URL.createObjectURL(blob);
+            a.href = url; a.download = filename;
+            document.body.appendChild(a); a.click();
+            setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 4000);
+            hideNote();
+          })
+          .then(function(){
+            return ff.deleteFile(vf).catch(function(){})
+              .then(function(){ return ff.deleteFile(af).catch(function(){}); })
+              .then(function(){ return ff.deleteFile(out).catch(function(){}); });
+          });
+      });
+    }).then(function(){ btn.disabled = false; })
+    .catch(function(){
+      btn.disabled = false;
+      note("Couldn't merge this one — try a \"no audio\" version plus the audio button separately.");
+    });
+  }
+
   /* ----- YouTube (Invidious API) ----- */
   function extractYouTubeId(u){
     var m = u.match(/(?:youtube\.com\/(?:watch\?[^#]*v=|shorts\/|embed\/|live\/)|youtu\.be\/|music\.youtube\.com\/watch\?[^#]*v=)([A-Za-z0-9_-]{11})/);
@@ -323,7 +386,7 @@ button.dl.alt:hover:not(:disabled){background:#e2e8f0}
   function handleYouTube(pageUrl){
     var id = extractYouTubeId(pageUrl);
     if (!id){ showError("That doesn't look like a valid YouTube link."); return Promise.resolve(); }
-    return fetch(INVIDIOUS_API + "/videos/" + id + "?fields=title,author,videoThumbnails,formatStreams,adaptiveFormats")
+    return fetch(INVIDIOUS_API + "/videos/" + id + "?fields=title,author,videoThumbnails,formatStreams,adaptiveFormats&local=true")
       .then(function(r){ if (!r.ok) throw new Error("yt"); return r.json(); })
       .then(function(j){
         if (!j || j.error) throw new Error("yt");
@@ -347,6 +410,8 @@ button.dl.alt:hover:not(:disabled){background:#e2e8f0}
           (function(u, fn){ b.onclick = function(){ downloadFile(u, fn); }; })(s.url, base + "_" + q.replace(/[^0-9a-z]/gi, "") + "." + ext);
           list.appendChild(b);
         });
+        var audios = (j.adaptiveFormats || []).filter(function(s){ return s.type && s.type.indexOf("audio/") === 0 && s.url; });
+        audios.sort(function(a, b){ return (b.bitrate || 0) - (a.bitrate || 0); });
         var vids = (j.adaptiveFormats || []).filter(function(s){
           return s.type && s.type.indexOf("video/") === 0 && s.url && s.qualityLabel;
         });
@@ -356,6 +421,25 @@ button.dl.alt:hover:not(:disabled){background:#e2e8f0}
           if (d) return d;
           return (a.container === "mp4" ? 0 : 1) - (b.container === "mp4" ? 0 : 1);
         });
+        // "with audio" merge option: best mp4 video-only + best m4a audio, muxed in-browser
+        (function(){
+          var mp4vids = vids.filter(function(s){ return s.container === "mp4"; });
+          var m4aauds = audios.filter(function(s){ return s.container === "m4a"; });
+          var mV = null, mA = null, mMp4 = true;
+          if (mp4vids.length && m4aauds.length){ mV = mp4vids[0]; mA = m4aauds[0]; mMp4 = true; }
+          else {
+            var webmvids = vids.filter(function(s){ return s.container === "webm"; });
+            var opusauds = audios.filter(function(s){ return s.container === "webm"; });
+            if (webmvids.length && opusauds.length){ mV = webmvids[0]; mA = opusauds[0]; mMp4 = false; }
+          }
+          if (!mV || !mA) return;
+          var mq = mV.qualityLabel || "video";
+          var mb = dlButton("Download Video " + mq + " (with audio)", combos.length === 0);
+          var mext = mMp4 ? "mp4" : "webm";
+          var mfn = base + "_" + mq.replace(/[^0-9a-z]/gi, "") + "_withaudio." + mext;
+          mb.onclick = function(){ mergeAndDownload(mV.url, mA.url, mfn, mb, mMp4); };
+          list.appendChild(mb);
+        })();
         var seenQ = {}, vopts = [];
         vids.forEach(function(s){
           if (!seenQ[s.qualityLabel] && vopts.length < 3){ seenQ[s.qualityLabel] = 1; vopts.push(s); }
@@ -366,8 +450,6 @@ button.dl.alt:hover:not(:disabled){background:#e2e8f0}
           (function(u, fn){ b.onclick = function(){ downloadFile(u, fn); }; })(s.url, base + "_" + s.qualityLabel.replace(/[^0-9a-z]/gi, "") + "_noaudio." + vext);
           list.appendChild(b);
         });
-        var audios = (j.adaptiveFormats || []).filter(function(s){ return s.type && s.type.indexOf("audio/") === 0 && s.url; });
-        audios.sort(function(a, b){ return (b.bitrate || 0) - (a.bitrate || 0); });
         if (audios.length){
           var aext = audios[0].container === "webm" ? "webm" : "m4a";
           var ab = dlButton("Download Audio", combos.length === 0);
