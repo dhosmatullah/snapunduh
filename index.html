@@ -130,10 +130,7 @@ button.dl.alt:hover:not(:disabled){background:#e2e8f0}
 
   var TIKWM_API = "https://www.tikwm.com/api/?url=";
   var FX_API = "https://api.fxtwitter.com/";
-  var COBALT_INSTANCES = [
-    "https://rue-cobalt.xenon.zone/api/json",
-    "https://cobaltapi.cjs.nz/api/json"
-  ];
+  var INVIDIOUS_API = "https://invidious.f5.si/api/v1";
   var PLAT_LABEL = {
     tiktok: "TikTok", x: "X", youtube: "YouTube",
     instagram: "Instagram", facebook: "Facebook"
@@ -318,28 +315,51 @@ button.dl.alt:hover:not(:disabled){background:#e2e8f0}
       .catch(function(){ showError("Couldn't fetch that X post. It may be deleted or private."); });
   }
 
-  /* ----- YouTube / Instagram / Facebook (Cobalt) ----- */
-  function cobaltRequest(pageUrl, extra){
-    var body = { url: pageUrl };
-    if (extra) for (var k in extra) body[k] = extra[k];
-    function attempt(i){
-      if (i >= COBALT_INSTANCES.length) return Promise.reject(new Error("down"));
-      return fetch(COBALT_INSTANCES[i], {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify(body)
-      }).then(function(r){ return r.json(); })
-      .then(function(j){
-        if (!j || j.status === "error") throw new Error("err");
-        return j;
-      })
-      .catch(function(){ return attempt(i + 1); });
-    }
-    return attempt(0);
+  /* ----- YouTube (Invidious API) ----- */
+  function extractYouTubeId(u){
+    var m = u.match(/(?:youtube\.com\/(?:watch\?[^#]*v=|shorts\/|embed\/|live\/)|youtu\.be\/|music\.youtube\.com\/watch\?[^#]*v=)([A-Za-z0-9_-]{11})/);
+    return m ? m[1] : null;
   }
-  function cleanFilename(fn){
-    if (!fn) return "media";
-    return fn.replace(/[^\w\-. ]+/g, "").trim() || "media";
+  function handleYouTube(pageUrl){
+    var id = extractYouTubeId(pageUrl);
+    if (!id){ showError("That doesn't look like a valid YouTube link."); return Promise.resolve(); }
+    return fetch(INVIDIOUS_API + "/videos/" + id + "?fields=title,author,videoThumbnails,formatStreams,adaptiveFormats")
+      .then(function(r){ if (!r.ok) throw new Error("yt"); return r.json(); })
+      .then(function(j){
+        if (!j || j.error) throw new Error("yt");
+        hideStatus();
+        var thumbs = j.videoThumbnails || [], thumb = null, ti;
+        for (ti = 0; ti < thumbs.length; ti++){ if (thumbs[ti].quality === "medium"){ thumb = thumbs[ti].url; break; } }
+        if (!thumb && thumbs.length) thumb = thumbs[0].url;
+        resultHead("youtube", j.title, j.author, thumb);
+        var list = el("div", "dl-list");
+        var base = "ridho_yt_" + id;
+        var combos = (j.formatStreams || []).filter(function(s){ return s.url; });
+        combos.forEach(function(s, i){
+          var q = s.qualityLabel || "video";
+          var b = dlButton("Download Video" + (s.qualityLabel ? " (" + s.qualityLabel + ")" : ""), i === 0);
+          var ext = s.container === "webm" ? "webm" : "mp4";
+          (function(u, fn){ b.onclick = function(){ downloadFile(u, fn); }; })(s.url, base + "_" + q.replace(/[^0-9a-z]/gi, "") + "." + ext);
+          list.appendChild(b);
+        });
+        var audios = (j.adaptiveFormats || []).filter(function(s){ return s.type && s.type.indexOf("audio/") === 0 && s.url; });
+        audios.sort(function(a, b){ return (b.bitrate || 0) - (a.bitrate || 0); });
+        if (audios.length){
+          var aext = audios[0].container === "webm" ? "webm" : "m4a";
+          var ab = dlButton("Download Audio", combos.length === 0);
+          (function(u, fn){ ab.onclick = function(){ downloadFile(u, fn); }; })(audios[0].url, base + "_audio." + aext);
+          list.appendChild(ab);
+        }
+        resultBox.appendChild(list);
+        if (!combos.length && !audios.length) note("No downloadable streams found for this video.");
+        showResult();
+      })
+      .catch(function(){ showError("Couldn't fetch that YouTube video. The server may be busy — try again later."); });
+  }
+  /* ----- Instagram / Facebook: no working free API right now ----- */
+  function handleSocialDown(p){
+    showError("Sorry — " + PLAT_LABEL[p] + " downloads are down for now. The free servers went offline. TikTok, X, and YouTube still work fine.");
+    return Promise.resolve();
   }
   /* ----- main ----- */
   function doFetch(){
@@ -357,49 +377,11 @@ button.dl.alt:hover:not(:disabled){background:#e2e8f0}
       handleTikTok(url).catch(function(){}).finally(done);
     } else if (p === "x"){
       handleX(url).catch(function(){}).finally(done);
+    } else if (p === "youtube"){
+      handleYouTube(url).catch(function(){}).finally(done);
     } else {
-      cobaltRequest(url, {})
-        .then(function(j){ hideStatus(); handleCobaltDone(j, p, url); })
-        .catch(function(){ showError("Couldn't fetch that link. It may be private/deleted, or the server is busy — try again later."); })
-        .finally(done);
+      handleSocialDown(p).finally(done);
     }
-  }
-  // dipakai ulang oleh doFetch agar tombol selalu aktif lagi
-  function handleCobaltDone(j, p, url){
-    var items = [];
-    if (j.status === "picker" && j.picker && j.picker.length){
-      items = j.picker.map(function(x){
-        return { url: x.url, filename: cleanFilename(x.filename || "media"), kind: x.type || "video" };
-      });
-    } else if (j.url){
-      items = [{ url: j.url, filename: cleanFilename(j.filename || "media"), kind: "video" }];
-    }
-    resultHead(p, items.length === 1 ? items[0].filename : (items.length + " files found"), PLAT_LABEL[p], null);
-    var list = el("div", "dl-list");
-    items.forEach(function(it, i){
-      var label = items.length > 1
-        ? ("Download " + (it.kind === "photo" ? "Photo " : "Video ") + (i+1))
-        : "Download";
-      var b = dlButton(label, i === 0);
-      (function(u, fn){ b.onclick = function(){ downloadFile(u, fn); }; })(it.url, it.filename);
-      list.appendChild(b);
-    });
-    if (p === "youtube"){
-      var ab = dlButton("Download Audio (MP3)", false);
-      ab.onclick = function(){
-        ab.disabled = true; note("Fetching audio…");
-        cobaltRequest(url, { downloadMode: "audio", audioFormat: "mp3" })
-          .then(function(r){
-            hideNote(); ab.disabled = false;
-            if (r.url) downloadFile(r.url, cleanFilename(r.filename || "audio") + ".mp3");
-            else note("Couldn't fetch the audio, try again.");
-          })
-          .catch(function(){ ab.disabled = false; note("Couldn't fetch the audio, try again later."); });
-      };
-      list.appendChild(ab);
-    }
-    resultBox.appendChild(list);
-    showResult();
   }
 
   urlInput.addEventListener("input", function(){
