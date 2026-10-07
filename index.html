@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Ridho — Downloader</title>
+<meta name="description" content="Download anything. One simple link. Fast, clean, and multi-platform."/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:#f8fafc;color:#0f172a;
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;
+  padding:72px 20px 40px;line-height:1.5;
+}
+.wrap{width:100%;max-width:720px;text-align:center}
+h1{font-size:clamp(28px,5vw,44px);font-weight:800;letter-spacing:-0.5px;margin-bottom:10px}
+.tagline{color:#64748b;font-size:16px;margin-bottom:36px}
+.card{
+  background:#fff;border:1px solid #eef1f6;border-radius:16px;
+  box-shadow:0 8px 24px rgba(15,23,42,0.04);
+  padding:28px;text-align:left;
+}
+.card label{
+  display:block;font-size:12px;font-weight:700;letter-spacing:1.2px;
+  color:#475569;margin-bottom:10px;
+}
+.row{display:flex;gap:10px}
+.input-wrap{position:relative;flex:1;min-width:0}
+.input-wrap svg{
+  position:absolute;left:14px;top:50%;transform:translateY(-50%);
+  width:18px;height:18px;color:#94a3b8;pointer-events:none;
+}
+.input-wrap input{
+  width:100%;border:1px solid #e2e8f0;border-radius:12px;
+  padding:13px 14px 13px 42px;font-size:15px;color:#0f172a;outline:none;
+  background:#fff;
+}
+.input-wrap input:focus{border-color:#facc15}
+.input-wrap input::placeholder{color:#94a3b8}
+button.enter{
+  border:none;cursor:pointer;border-radius:12px;font-weight:700;font-size:15px;
+  padding:13px 28px;color:#0f172a;background:#facc15;white-space:nowrap;
+  transition:background .12s ease, transform .12s ease;
+}
+button.enter:hover:not(:disabled){background:#e0b40c}
+button.enter:active:not(:disabled){transform:scale(.97)}
+button.enter:disabled{opacity:.5;cursor:not-allowed}
+.helper{color:#64748b;font-size:13px;margin-top:12px}
+#status{margin-top:16px;display:none}
+#status.show{display:block}
+.loading{display:flex;align-items:center;gap:10px;color:#64748b;font-size:14px}
+.spinner{
+  width:20px;height:20px;border-radius:50%;flex:none;
+  border:3px solid #e2e8f0;border-top-color:#facc15;
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.error{
+  background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;
+  border-radius:12px;padding:12px 14px;font-size:14px;
+}
+#result{display:none;margin-top:20px;border-top:1px solid #f1f5f9;padding-top:20px}
+#result.show{display:block}
+.res{display:flex;gap:14px;margin-bottom:16px;align-items:center}
+.res img.thumb{
+  width:72px;height:72px;object-fit:cover;border-radius:12px;flex:none;
+  background:#f1f5f9;border:1px solid #eef1f6;
+}
+.res .t{min-width:0;text-align:left}
+.res .t .title{
+  font-size:14.5px;font-weight:600;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  word-break:break-word;
+}
+.res .t .sub{font-size:12.5px;color:#64748b;margin-top:4px}
+.dl-list{display:grid;gap:10px}
+button.dl{
+  border:none;cursor:pointer;border-radius:12px;font-weight:700;font-size:14.5px;
+  padding:13px 18px;color:#0f172a;background:#facc15;width:100%;
+  transition:background .12s ease, transform .12s ease;
+}
+button.dl:hover:not(:disabled){background:#e0b40c}
+button.dl:active:not(:disabled){transform:scale(.98)}
+button.dl:disabled{opacity:.5;cursor:wait}
+button.dl.alt{background:#f1f5f9;border:1px solid #e2e8f0}
+button.dl.alt:hover:not(:disabled){background:#e2e8f0}
+.note{
+  font-size:12.5px;color:#64748b;background:#f8fafc;border:1px dashed #cbd5e1;
+  border-radius:10px;padding:10px 12px;margin-top:12px;display:none;text-align:left;
+}
+.note.show{display:block}
+.imgs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px}
+.imgs figure{background:#f8fafc;border:1px solid #eef1f6;border-radius:10px;overflow:hidden}
+.imgs img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+.imgs button{
+  width:100%;border:none;background:none;color:#0f172a;font-size:12.5px;font-weight:700;
+  padding:9px 4px;cursor:pointer;
+}
+.imgs button:hover{text-decoration:underline}
+.foot{color:#94a3b8;font-size:12.5px;margin-top:32px;text-align:center}
+@media (max-width:520px){ .row{flex-direction:column} button.enter{width:100%} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Download anything. One simple link.</h1>
+  <p class="tagline">Fast, clean, and multi-platform.</p>
+
+  <div class="card">
+    <label for="urlInput">Paste media URL</label>
+    <div class="row">
+      <div class="input-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        <input id="urlInput" type="url" inputmode="url" placeholder="https://..." autocomplete="off"/>
+      </div>
+      <button class="enter" id="goBtn" disabled>Enter</button>
+    </div>
+    <p class="helper">Paste a valid link from TikTok, YouTube, Instagram, Facebook, or X.</p>
+    <div id="status"></div>
+    <div id="result"></div>
+  </div>
+
+  <p class="foot">Made by Ridho</p>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var TIKWM_API = "https://www.tikwm.com/api/?url=";
+  var FX_API = "https://api.fxtwitter.com/";
+  var COBALT_INSTANCES = [
+    "https://rue-cobalt.xenon.zone/api/json",
+    "https://cobaltapi.cjs.nz/api/json"
+  ];
+  var PLAT_LABEL = {
+    tiktok: "TikTok", x: "X", youtube: "YouTube",
+    instagram: "Instagram", facebook: "Facebook"
+  };
+
+  var urlInput = document.getElementById("urlInput");
+  var goBtn = document.getElementById("goBtn");
+  var statusBox = document.getElementById("status");
+  var resultBox = document.getElementById("result");
+
+  function detectPlatform(u){
+    if (/tiktok\.com/i.test(u)) return "tiktok";
+    if (/(^|\.)(twitter\.com|x\.com)/i.test(u)) return "x";
+    if (/(youtube\.com|youtu\.be)/i.test(u)) return "youtube";
+    if (/instagram\.com/i.test(u)) return "instagram";
+    if (/(facebook\.com|fb\.watch|fb\.com)/i.test(u)) return "facebook";
+    return null;
+  }
+  function el(tag, cls, text){
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function showStatus(html, cls){
+    statusBox.className = "show"; statusBox.innerHTML = "";
+    var d = document.createElement("div");
+    if (cls) d.className = cls;
+    d.innerHTML = html;
+    statusBox.appendChild(d);
+  }
+  function hideStatus(){ statusBox.className = ""; statusBox.innerHTML = ""; }
+  function showError(msg){
+    hideResult();
+    showStatus("", "error");
+    statusBox.firstChild.textContent = msg;
+  }
+  function hideResult(){ resultBox.className = ""; resultBox.innerHTML = ""; }
+
+  function downloadFile(fileUrl, filename){
+    note("Preparing download…");
+    fetch(fileUrl).then(function(res){
+      if (!res.ok) throw new Error("bad");
+      return res.blob();
+    }).then(function(blob){
+      var a = document.createElement("a");
+      var objUrl = URL.createObjectURL(blob);
+      a.href = objUrl;
+      a.download = filename || "download";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function(){ URL.revokeObjectURL(objUrl); a.remove(); }, 4000);
+      hideNote();
+    }).catch(function(){
+      window.open(fileUrl, "_blank");
+      note("Direct download was blocked — opened in a new tab. Save it manually from there.");
+    });
+  }
+  function note(msg){
+    var n = document.getElementById("dlNote");
+    if (!n){ n = el("div", "note"); n.id = "dlNote"; resultBox.appendChild(n); }
+    n.textContent = msg; n.classList.add("show");
+  }
+  function hideNote(){
+    var n = document.getElementById("dlNote");
+    if (n) n.classList.remove("show");
+  }
+  function dlButton(label, primary){
+    var b = el("button", "dl" + (primary ? "" : " alt"), label);
+    return b;
+  }
+
+  function resultHead(platform, title, sub, thumbSrc){
+    var wrap = el("div", "res");
+    if (thumbSrc){
+      var img = el("img", "thumb"); img.src = thumbSrc; img.alt = "";
+      wrap.appendChild(img);
+    }
+    var t = el("div", "t");
+    t.appendChild(el("div", "title", title || "Media"));
+    if (sub) t.appendChild(el("div", "sub", sub));
+    wrap.appendChild(t);
+    resultBox.appendChild(wrap);
+  }
+  function showResult(){
+    resultBox.classList.add("show");
+    resultBox.scrollIntoView({behavior:"smooth", block:"nearest"});
+  }
+
+  /* ----- TikTok ----- */
+  function handleTikTok(pageUrl){
+    return fetch(TIKWM_API + encodeURIComponent(pageUrl))
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (!j || j.code !== 0 || !j.data) throw new Error("tiktok");
+        hideStatus();
+        var d = j.data;
+        var author = d.author ? ("@" + (d.author.unique_id || d.author.nickname || "")) : "";
+        resultHead("tiktok", d.title, author, d.cover || d.origin_cover);
+        var base = "ridho_" + (d.id || "tiktok");
+        var list = el("div", "dl-list");
+        if (d.images && d.images.length){
+          var grid = el("div", "imgs");
+          d.images.forEach(function(src, i){
+            var fig = el("figure");
+            var img = el("img"); img.src = src; img.alt = ""; img.loading = "lazy";
+            var b = el("button", null, "Photo " + (i+1));
+            (function(u){ b.onclick = function(){ downloadFile(u, base + "_photo" + (i+1) + ".jpg"); }; })(src);
+            fig.appendChild(img); fig.appendChild(b); grid.appendChild(fig);
+          });
+          resultBox.appendChild(grid);
+        } else {
+          if (d.play){
+            var b1 = dlButton("Download Video (No Watermark)", true);
+            b1.onclick = function(){ downloadFile(d.play, base + "_nowm.mp4"); };
+            list.appendChild(b1);
+          }
+          if (d.hdplay){
+            var b2 = dlButton("Download HD", false);
+            b2.onclick = function(){ downloadFile(d.hdplay, base + "_hd.mp4"); };
+            list.appendChild(b2);
+          }
+          if (d.wmplay){
+            var b3 = dlButton("Download with Watermark", false);
+            b3.onclick = function(){ downloadFile(d.wmplay, base + "_wm.mp4"); };
+            list.appendChild(b3);
+          }
+        }
+        if (d.music){
+          var bm = dlButton("Download Audio (MP3)", !(d.play || (d.images && d.images.length)));
+          bm.onclick = function(){ downloadFile(d.music, base + "_audio.mp3"); };
+          list.appendChild(bm);
+        }
+        resultBox.appendChild(list);
+        showResult();
+      })
+      .catch(function(){ showError("Couldn't fetch that TikTok link. It may be private or deleted."); });
+  }
+
+  /* ----- X / Twitter ----- */
+  function handleX(pageUrl){
+    var m = pageUrl.match(/(?:twitter\.com|x\.com)\/([^\/\?#]+)\/status\/(\d+)/i);
+    if (!m){ showError("That doesn't look like a valid X link."); return Promise.reject(new Error("x")); }
+    return fetch(FX_API + m[1] + "/status/" + m[2])
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (!j || j.code !== 200 || !j.tweet) throw new Error("x");
+        hideStatus();
+        var t = j.tweet, a = t.author || {};
+        resultHead("x", t.text, (a.name || "") + (a.screen_name ? " @" + a.screen_name : ""), a.avatar_url);
+        var media = t.media || {};
+        var videos = media.videos || [], photos = media.photos || [];
+        if (!videos.length && !photos.length && media.all){
+          media.all.forEach(function(it){
+            if (it.type === "video" || it.type === "gif") videos.push(it);
+            else if (it.type === "photo") photos.push(it);
+          });
+        }
+        var base = "ridho_x_" + (t.id || "post");
+        var list = el("div", "dl-list"), n = 0;
+        videos.forEach(function(v){
+          n++;
+          var b = dlButton("Download Video" + (videos.length > 1 ? " " + n : ""), n === 1);
+          (function(u){ b.onclick = function(){ downloadFile(u, base + "_video" + n + ".mp4"); }; })(v.url);
+          list.appendChild(b);
+        });
+        resultBox.appendChild(list);
+        if (photos.length){
+          var grid = el("div", "imgs");
+          photos.forEach(function(p, i){
+            var fig = el("figure");
+            var img = el("img"); img.src = p.url; img.alt = ""; img.loading = "lazy";
+            var b = el("button", null, "Photo " + (i+1));
+            (function(u){ b.onclick = function(){ downloadFile(u, base + "_photo" + (i+1) + ".jpg"); }; })(p.url);
+            fig.appendChild(img); fig.appendChild(b); grid.appendChild(fig);
+          });
+          resultBox.appendChild(grid);
+        }
+        if (!videos.length && !photos.length) note("This post has no downloadable photo or video.");
+        showResult();
+      })
+      .catch(function(){ showError("Couldn't fetch that X post. It may be deleted or private."); });
+  }
+
+  /* ----- YouTube / Instagram / Facebook (Cobalt) ----- */
+  function cobaltRequest(pageUrl, extra){
+    var body = { url: pageUrl };
+    if (extra) for (var k in extra) body[k] = extra[k];
+    function attempt(i){
+      if (i >= COBALT_INSTANCES.length) return Promise.reject(new Error("down"));
+      return fetch(COBALT_INSTANCES[i], {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(body)
+      }).then(function(r){ return r.json(); })
+      .then(function(j){
+        if (!j || j.status === "error") throw new Error("err");
+        return j;
+      })
+      .catch(function(){ return attempt(i + 1); });
+    }
+    return attempt(0);
+  }
+  function cleanFilename(fn){
+    if (!fn) return "media";
+    return fn.replace(/[^\w\-. ]+/g, "").trim() || "media";
+  }
+  /* ----- main ----- */
+  function doFetch(){
+    var url = urlInput.value.trim();
+    var p = detectPlatform(url);
+    if (!p){
+      showError("Link not recognized. Try a TikTok, YouTube, Instagram, Facebook, or X link.");
+      return;
+    }
+    goBtn.disabled = true;
+    hideResult(); hideStatus();
+    showStatus('<div class="loading"><div class="spinner"></div><span>Fetching from ' + PLAT_LABEL[p] + '…</span></div>');
+    var done = function(){ goBtn.disabled = false; };
+    if (p === "tiktok"){
+      handleTikTok(url).catch(function(){}).finally(done);
+    } else if (p === "x"){
+      handleX(url).catch(function(){}).finally(done);
+    } else {
+      cobaltRequest(url, {})
+        .then(function(j){ hideStatus(); handleCobaltDone(j, p, url); })
+        .catch(function(){ showError("Couldn't fetch that link. It may be private/deleted, or the server is busy — try again later."); })
+        .finally(done);
+    }
+  }
+  // dipakai ulang oleh doFetch agar tombol selalu aktif lagi
+  function handleCobaltDone(j, p, url){
+    var items = [];
+    if (j.status === "picker" && j.picker && j.picker.length){
+      items = j.picker.map(function(x){
+        return { url: x.url, filename: cleanFilename(x.filename || "media"), kind: x.type || "video" };
+      });
+    } else if (j.url){
+      items = [{ url: j.url, filename: cleanFilename(j.filename || "media"), kind: "video" }];
+    }
+    resultHead(p, items.length === 1 ? items[0].filename : (items.length + " files found"), PLAT_LABEL[p], null);
+    var list = el("div", "dl-list");
+    items.forEach(function(it, i){
+      var label = items.length > 1
+        ? ("Download " + (it.kind === "photo" ? "Photo " : "Video ") + (i+1))
+        : "Download";
+      var b = dlButton(label, i === 0);
+      (function(u, fn){ b.onclick = function(){ downloadFile(u, fn); }; })(it.url, it.filename);
+      list.appendChild(b);
+    });
+    if (p === "youtube"){
+      var ab = dlButton("Download Audio (MP3)", false);
+      ab.onclick = function(){
+        ab.disabled = true; note("Fetching audio…");
+        cobaltRequest(url, { downloadMode: "audio", audioFormat: "mp3" })
+          .then(function(r){
+            hideNote(); ab.disabled = false;
+            if (r.url) downloadFile(r.url, cleanFilename(r.filename || "audio") + ".mp3");
+            else note("Couldn't fetch the audio, try again.");
+          })
+          .catch(function(){ ab.disabled = false; note("Couldn't fetch the audio, try again later."); });
+      };
+      list.appendChild(ab);
+    }
+    resultBox.appendChild(list);
+    showResult();
+  }
+
+  urlInput.addEventListener("input", function(){
+    goBtn.disabled = !urlInput.value.trim();
+  });
+  goBtn.addEventListener("click", doFetch);
+  urlInput.addEventListener("keydown", function(e){
+    if (e.key === "Enter" && !goBtn.disabled) doFetch();
+  });
+})();
+</script>
+</body>
+</html>
