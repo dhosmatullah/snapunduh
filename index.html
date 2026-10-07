@@ -328,8 +328,13 @@ button.dl.alt:hover:not(:disabled){background:#e2e8f0}
       .then(function(j){
         if (!j || j.error) throw new Error("yt");
         hideStatus();
-        var thumbs = j.videoThumbnails || [], thumb = null, ti;
-        for (ti = 0; ti < thumbs.length; ti++){ if (thumbs[ti].quality === "medium"){ thumb = thumbs[ti].url; break; } }
+        var thumbs = j.videoThumbnails || [], thumb = null, ti, qi;
+        var qpref = ["sddefault", "high", "medium", "default"];
+        for (qi = 0; qi < qpref.length && !thumb; qi++){
+          for (ti = 0; ti < thumbs.length; ti++){
+            if (thumbs[ti].quality === qpref[qi]){ thumb = thumbs[ti].url; break; }
+          }
+        }
         if (!thumb && thumbs.length) thumb = thumbs[0].url;
         resultHead("youtube", j.title, j.author, thumb);
         var list = el("div", "dl-list");
@@ -342,6 +347,25 @@ button.dl.alt:hover:not(:disabled){background:#e2e8f0}
           (function(u, fn){ b.onclick = function(){ downloadFile(u, fn); }; })(s.url, base + "_" + q.replace(/[^0-9a-z]/gi, "") + "." + ext);
           list.appendChild(b);
         });
+        var vids = (j.adaptiveFormats || []).filter(function(s){
+          return s.type && s.type.indexOf("video/") === 0 && s.url && s.qualityLabel;
+        });
+        vids.sort(function(a, b){
+          function rn(s){ var m = String(s.qualityLabel || "").match(/(\d+)/); return m ? parseInt(m[1], 10) : 0; }
+          var d = rn(b) - rn(a);
+          if (d) return d;
+          return (a.container === "mp4" ? 0 : 1) - (b.container === "mp4" ? 0 : 1);
+        });
+        var seenQ = {}, vopts = [];
+        vids.forEach(function(s){
+          if (!seenQ[s.qualityLabel] && vopts.length < 3){ seenQ[s.qualityLabel] = 1; vopts.push(s); }
+        });
+        vopts.forEach(function(s){
+          var b = dlButton("Download Video " + s.qualityLabel + " (no audio)", false);
+          var vext = s.container === "webm" ? "webm" : "mp4";
+          (function(u, fn){ b.onclick = function(){ downloadFile(u, fn); }; })(s.url, base + "_" + s.qualityLabel.replace(/[^0-9a-z]/gi, "") + "_noaudio." + vext);
+          list.appendChild(b);
+        });
         var audios = (j.adaptiveFormats || []).filter(function(s){ return s.type && s.type.indexOf("audio/") === 0 && s.url; });
         audios.sort(function(a, b){ return (b.bitrate || 0) - (a.bitrate || 0); });
         if (audios.length){
@@ -351,7 +375,7 @@ button.dl.alt:hover:not(:disabled){background:#e2e8f0}
           list.appendChild(ab);
         }
         resultBox.appendChild(list);
-        if (!combos.length && !audios.length) note("No downloadable streams found for this video.");
+        if (!combos.length && !vopts.length && !audios.length) note("No downloadable streams found for this video.");
         showResult();
       })
       .catch(function(){ showError("Couldn't fetch that YouTube video. The server may be busy — try again later."); });
